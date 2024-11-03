@@ -17,7 +17,7 @@ class PackedIntArray:
         if storage is None:
             storage = bytearray((length * bitwidth - 1) // 8 + 1) # ceil(x / y) == (x - 1) // y + 1
         if length is None:
-            length = len(storage) * 8 // self.bitwidth
+            length = (len(storage) * 8 - bitoffset) // bitwidth
         self.bitwidth = bitwidth
         self.storage = storage
         self.length = length
