@@ -8,23 +8,25 @@ class PackedIntArray:
 
     If an integer is passed rather than a storage object, a new bytearray is allocated of sufficient size to hold that many bitwidths.
     '''
-    def __init__(self, bitwidth, storage, endian = 'little', bitoffset = 0, max_len = None):
+    def __init__(self, bitwidth, storage = None, length = None, bitoffset = 0, endian = 'little'):
         assert endian in ['little', 'big']
+        assert storage is not None or length is not None
         if type(storage) is int:
-            storage = bytearray((storage * bitwidth - 1) // 8 + 1) # ceil(x / y) == (x - 1) // y + 1
+            length = storage
+            storage = None
+        if storage is None:
+            storage = bytearray((length * bitwidth - 1) // 8 + 1) # ceil(x / y) == (x - 1) // y + 1
+        if length is None:
+            length = len(storage) * 8 // self.bitwidth
         self.bitwidth = bitwidth
-        self.bitoffset = bitoffset
-        self.max_len = max_len
         self.storage = storage
+        self.length = length
+        self.bitoffset = bitoffset
+        self.endian = endian
         self.get_range_shift = getattr(self, '_get_range_shift_' + endian)
         self.value_mask = (1 << bitwidth) - 1
-        self.endian = endian
     def __len__(self):
-        length = len(self.storage) * 8 // self.bitwidth
-        if self.max_len is not None:
-            return min(self.max_len, length)
-        else:
-            return length
+        return self.length
     def _get_range_shift_big(self, index, count=1):
         bitwidth = self.bitwidth
         bits = index * bitwidth + self.bitoffset
@@ -42,7 +44,7 @@ class PackedIntArray:
             assert index.step in [None,1] # todo if desired
             count = index.stop - index.start
             start, end, shift = self.get_range_shift(index.start, count)
-            return type(self)(self.bitwidth, self.storage[start:end], self.endian, shift, count)
+            return type(self)(self.bitwidth, self.storage[start:end], count, shift, self.endian)
         else:
             start, end, shift = self.get_range_shift(index)
             return (int.from_bytes(self.storage[start:end], self.endian) >> shift) & self.value_mask
