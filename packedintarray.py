@@ -23,33 +23,35 @@ class PackedIntArray:
         self.length = length
         self.bitoffset = bitoffset
         self.endian = endian
-        self.get_range_shift = getattr(self, '_get_range_shift_' + endian)
+        self.get_shift = getattr(self, '_get_shift_' + endian)
         self.value_mask = (1 << bitwidth) - 1
     def __len__(self):
         return self.length
-    def _get_range_shift_big(self, index, count=1):
+    def _get_shift_big(self, bitoffset_left, bitoffset_right):
+        return 8 - bitoffset_right
+    def _get_shift_little(self, bitoffset_left, bitoffset_right):
+        return bitoffset_left
+    def get_range_bitoffsets(self, index, count=1):
         bitwidth = self.bitwidth
         bits = index * bitwidth + self.bitoffset
-        offset1 = bits // 8
-        offset2, bits2 = divmod(bits + bitwidth * count + 8, 8)
-        return [offset1, offset2, 8 - bits2]
-    def _get_range_shift_little(self, index, count=1):
-        bitwidth = self.bitwidth
-        bits = index * bitwidth + self.bitoffset
-        offset1, bits1 = divmod(bits, 8)
-        offset2 = (bits + bitwidth * count + 8) // 8
-        return [offset1, offset2, bits1]
+        start, bitoffset_left = divmod(bits, 8)
+        end, bitoffset_right = divmod(bits + bitwidth * count + 8, 8)
+        return [start, end, bitoffset_left, bitoffset_right]
     def __getitem__(self, index):
         if type(index) is slice:
-            assert index.step in [None,1] # todo if desired
-            count = index.stop - index.start
-            start, end, shift = self.get_range_shift(index.start, count)
+            slice_start, slice_stop, slice_stride = index.indices(len(self))
+            assert slice_stride in [None,1] # todo if desired
+            count = slice_stop - slice_start
+            start, end, *bitoffsets = self.get_range_bitoffsets(slice_start, count)
+            shift = self.get_shift(*bitoffsets)
             return type(self)(self.bitwidth, self.storage[start:end], count, shift, self.endian)
         else:
-            start, end, shift = self.get_range_shift(index)
+            start, end, *bitoffsets = self.get_range_bitoffsets(index)
+            shift = self.get_shift(*bitoffsets)
             return (int.from_bytes(self.storage[start:end], self.endian) >> shift) & self.value_mask
     def __setitem__(self, index, value):
-        start, end, shift = self.get_range_shift(index)
+        start, end, *bitoffsets = self.get_range_bitoffsets(index)
+        shift = self.get_shift(*bitoffsets)
         data = (int.from_bytes(self.storage[start:end], self.endian) & ~(self.value_mask << shift)) | (value << shift)
         self.storage[start:end] = data.to_bytes(end - start, self.endian)
     def __iter__(self):
@@ -67,8 +69,8 @@ def _test():
                 testarray[idx] = ints[idx]
             for idx in range(len(ints)):
                 assert testarray[idx] == ints[idx]
-            for start in tqdm.tqdm(range(len(ints)), desc=f'all {bitwidth}bit {endian} slices'):
-                for stop in range(start, len(ints)):
+            for start in tqdm.tqdm([None] + list(range(len(ints))), desc=f'all {bitwidth}bit {endian} slices'):
+                for stop in [None] + list(range(start or 0, len(ints))):
                     subarray = testarray[start:stop]
                     subints = ints[start:stop]
                     for idx in range(len(subints)):
